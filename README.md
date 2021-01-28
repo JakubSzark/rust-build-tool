@@ -19,7 +19,8 @@ task_name
 ```
 
 # Arguments
-Use <strong>-powershell</strong> to run your build with powershell
+- <strong>-powershell</strong> to run your build with powershell
+- <strong>-async</strong> to run your tasks asynchronously
 
 # Example Build.cfg
 
