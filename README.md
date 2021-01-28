@@ -12,7 +12,7 @@ Below is an example.
 $variable = value
 
 [task_name]
-command = program $sources
+command = program $variable
 
 [execute]
 task_name
