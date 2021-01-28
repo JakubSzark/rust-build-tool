@@ -187,6 +187,14 @@ fn output_task_result(task_name: &String, output: Output) {
 }
 
 fn main() {
+    let mut use_powershell = false;
+
+    for arg in std::env::args() {
+        if arg.starts_with("-powershell") {
+            use_powershell = true;
+        }
+    }
+
     println!("info: reading {}...", BUILD_CONFIG);
 
     let config = match get_build_config() {
@@ -213,7 +221,14 @@ fn main() {
         let mut split = task.command.split(" ");
 
         if let Some(first) = split.nth(0) {
-            let mut command = Command::new(first);
+            let mut command = if !use_powershell {
+                Command::new(first)
+            } else {
+                let mut command = Command::new("Powershell");
+                command.arg("-Command");
+                command.arg(first);
+                command
+            };
 
             while let Some(arg) = split.next() {
                 match variables.get(arg) {
@@ -236,6 +251,7 @@ fn main() {
     while let Some(task_name) = queue.pop_front() {
         if let Some(command) = commands.get_mut(&task_name) {
             print!("task({}): started", task_name);
+
             match command.output() {
                 Err(e) => {
                     println!("\rtask({}): failed to execute\n{}", task_name, e);
