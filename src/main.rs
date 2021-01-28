@@ -167,6 +167,7 @@ fn get_execute_queue(config: &String) -> VecDeque<String> {
     return queue;
 }
 
+/// Outputs the result of the task and whether it succeeded
 fn output_task_result(task_name: &String, output: Output) {
     if output.status.success() {
         println!("\rtask({}): finished", task_name);
