@@ -18,6 +18,9 @@ command = program $variable
 task_name
 ```
 
+# Arguments
+Use <strong>-powershell</strong> to run your build with powershell
+
 # Example Build.cfg
 
 ```ini
