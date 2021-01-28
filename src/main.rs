@@ -205,6 +205,10 @@ fn main() {
         }
     };
 
+    if config.is_empty() {
+        return;
+    }
+
     let variables = get_variables_map(&config);
     let tasks = get_user_tasks(&config);
 
