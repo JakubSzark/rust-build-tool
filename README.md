@@ -1,5 +1,5 @@
 # Custom Build Tool
-This is my own custom build tool made in rust. 
+This is my own custom build tool made in rust-lang. 
 
 The premise is that it is a single executable that parses a build.cfg. The build cfg can have variables, tasks, and an execution order. Below is an example.
 
