@@ -188,10 +188,15 @@ fn output_task_result(task_name: &String, output: Output) {
 
 fn main() {
     let mut use_powershell = false;
+    let mut is_async = false;
 
     for arg in std::env::args() {
         if arg.starts_with("-powershell") {
             use_powershell = true;
+        }
+
+        if arg.starts_with("-async") {
+            is_async = true;
         }
     }
 
@@ -252,15 +257,52 @@ fn main() {
         return;
     }
 
+    let mut children = Vec::new();
+
     while let Some(task_name) = queue.pop_front() {
         if let Some(command) = commands.get_mut(&task_name) {
-            print!("task({}): started", task_name);
+            if !is_async {
+                print!("task({}): started", task_name);
 
-            match command.output() {
-                Err(e) => {
-                    println!("\rtask({}): failed to execute\n{}", task_name, e);
+                match command.output() {
+                    Err(e) => {
+                        println!("\rtask({}): failed to execute\n{}", task_name, e);
+                    }
+                    Ok(output) => output_task_result(&task_name, output),
                 }
-                Ok(output) => output_task_result(&task_name, output),
+            } else {
+                println!("task({}): started", task_name);
+
+                match command.spawn() {
+                    Ok(child) => {
+                        children.push((task_name, child));
+                    }
+                    Err(e) => {
+                        println!("task({}): failed to spawn\n{}", task_name, e);
+                    }
+                }
+            }
+        }
+    }
+
+    while !children.is_empty() {
+        let (task_name, mut child) = children.pop().unwrap();
+        let is_finished = { child.try_wait() };
+
+        match is_finished {
+            Ok(Some(_)) => match child.wait_with_output() {
+                Ok(output) => {
+                    output_task_result(&task_name, output);
+                }
+                Err(e) => {
+                    println!("task({}): failed to retrieve output\n{}", task_name, e);
+                }
+            },
+            Err(e) => {
+                println!("task({}): process failed\n{}", task_name, e);
+            }
+            _ => {
+                children.push((task_name, child));
             }
         }
     }
