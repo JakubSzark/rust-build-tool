@@ -1,6 +1,9 @@
-use std::{collections::{HashMap, VecDeque}, io::Write};
-use std::process::Command;
 use std::fs::File;
+use std::process::Command;
+use std::{
+    collections::{HashMap, VecDeque},
+    process::Output,
+};
 
 const BUILD_CONFIG: &str = "build.cfg";
 
@@ -45,12 +48,12 @@ fn get_line_key_value<'a>(line: &'a str) -> Option<(&'a str, &'a str)> {
 
     let key = match split.next() {
         Some(key) => key.trim_matches(trim_pat),
-        None => return None
+        None => return None,
     };
 
     let value = match split.next() {
         Some(value) => value.trim_matches(trim_pat),
-        None => return None
+        None => return None,
     };
 
     Some((key, value))
@@ -63,14 +66,16 @@ fn get_variables_map(config: &String) -> HashMap<String, String> {
     let mut variables = HashMap::new();
 
     for line in lines {
+        let trimmed = line.trim();
+
         // We need to make sure the line starts with a $
-        if let Some(first) = line.chars().nth(0) {
+        if let Some(first) = trimmed.chars().nth(0) {
             if first != '$' {
                 continue;
             }
         }
 
-        if let Some((key, value)) = get_line_key_value(line) {
+        if let Some((key, value)) = get_line_key_value(trimmed) {
             variables.insert(String::from(key), String::from(value));
         }
     }
@@ -82,9 +87,8 @@ fn get_variables_map(config: &String) -> HashMap<String, String> {
 fn get_user_tasks(config: &String) -> Vec<Task> {
     let lines = config.lines();
     let mut tasks = Vec::new();
-    let mut name_found = false;
-
     let mut task_name = String::new();
+    let mut task_found = false;
 
     for line in lines {
         // Ignore empty lines
@@ -92,49 +96,51 @@ fn get_user_tasks(config: &String) -> Vec<Task> {
             continue;
         }
 
-        if !name_found {
-            let trimmed = line.trim();
+        let trimmed = line.trim();
 
+        // We look for task headers first
+        if !task_found {
             // Task headers start with an open bracket
             if let Some(first) = trimmed.chars().nth(0) {
                 if first != '[' {
                     continue;
                 }
             }
-    
+
             // Also the header ends with a close bracket
             if let Some(last) = trimmed.chars().last() {
                 if (last) != ']' {
                     continue;
                 }
             }
-    
+
             let trim_pat = |c| c == '[' || c == ']';
-            task_name = String::from(trimmed.trim_matches(trim_pat));
-            name_found = true;
-        }
-        else {
+            task_name.push_str(trimmed.trim_matches(trim_pat));
+            task_found = true;
+        } else {
             // Tasks have a command
-            if !line.starts_with("command") {
+            if !trimmed.starts_with("command") {
                 continue;
             }
 
-            if let Some((_, value)) = get_line_key_value(line) {
+            if let Some((_, value)) = get_line_key_value(trimmed) {
+                if value.is_empty() {
+                    println!("warn: task({}) has no command", task_name);
+                    continue;
+                }
+
                 tasks.push(Task {
                     name: task_name.clone(),
-                    command: String::from(value)
+                    command: String::from(value),
                 });
 
-                name_found = false;
-            } 
+                task_name.clear();
+                task_found = false;
+            }
         }
     }
 
     return tasks;
-}
-
-fn carriage_return() {
-    std::io::stdout().write("\r".as_bytes()).unwrap();
 }
 
 /// This retrieves the execution task queue from the config file.
@@ -161,6 +167,24 @@ fn get_execute_queue(config: &String) -> VecDeque<String> {
     return queue;
 }
 
+fn output_task_result(task_name: &String, output: Output) {
+    if output.status.success() {
+        println!("\rtask({}): finished", task_name);
+        if let Ok(stdout) = String::from_utf8(output.stdout) {
+            if !stdout.is_empty() {
+                println!("\n{}", stdout);
+            }
+        }
+    } else {
+        println!("\rtask({}): failed", task_name);
+        if let Ok(stderr) = String::from_utf8(output.stderr) {
+            if !stderr.is_empty() {
+                println!("\n{}", stderr);
+            }
+        }
+    }
+}
+
 fn main() {
     println!("info: reading {}...", BUILD_CONFIG);
 
@@ -175,8 +199,11 @@ fn main() {
     let variables = get_variables_map(&config);
     let tasks = get_user_tasks(&config);
 
-    println!("info: found {} var(s) and {} task(s)", 
-        variables.len(), tasks.len());
+    println!(
+        "info: found {} var(s) and {} task(s)",
+        variables.len(),
+        tasks.len()
+    );
 
     let mut commands = HashMap::new();
 
@@ -188,11 +215,10 @@ fn main() {
             let mut command = Command::new(first);
 
             while let Some(arg) = split.next() {
-                if variables.contains_key(arg) {
-                    command.arg(variables.get(arg).unwrap());
-                } else {
-                    command.arg(arg);
-                }
+                match variables.get(arg) {
+                    Some(val) => command.arg(val),
+                    None => command.arg(arg),
+                };
             }
 
             commands.insert(task.name, command);
@@ -201,33 +227,19 @@ fn main() {
 
     let mut queue = get_execute_queue(&config);
 
+    if queue.is_empty() {
+        println!("info: execute task is empty");
+        return;
+    }
+
     while let Some(task_name) = queue.pop_front() {
         if let Some(command) = commands.get_mut(&task_name) {
             print!("task({}): started", task_name);
             match command.output() {
                 Err(e) => {
-                    carriage_return();
-                    println!("task({}): failed to execute task\n{}", task_name, e);
-                },
-                Ok(output) => {
-                    if output.status.success() {
-                        carriage_return();
-                        println!("task({}): finished", task_name);
-                        if let Ok(stdout) = String::from_utf8(output.stdout) {
-                            if !stdout.is_empty() {
-                                println!("\n{}", stdout);
-                            }
-                        }
-                    } else {
-                        carriage_return();
-                        println!("task({}): Failed", task_name);
-                        if let Ok(stderr) = String::from_utf8(output.stderr) {
-                            if !stderr.is_empty() {
-                                println!("\n{}", stderr);
-                            }
-                        }
-                    }
+                    println!("\rtask({}): failed to execute\n{}", task_name, e);
                 }
+                Ok(output) => output_task_result(&task_name, output),
             }
         }
     }
